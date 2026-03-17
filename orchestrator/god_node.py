@@ -31,8 +31,12 @@ class WraithOrchestrator:
 
     def is_night_mode(self):
         """Night Mode is from 02:00 to 08:00 (exclusive of 08:00)"""
-        hour = datetime.datetime.now().hour
-        return 2 <= hour < 8
+        try:
+            hour = datetime.datetime.now().hour
+            return 2 <= hour < 8
+        except Exception as e:
+            logger.error(f"Error checking time: {e}")
+            return False
 
     def start_process(self, name, script_path):
         if not os.path.exists(script_path):
@@ -42,6 +46,8 @@ class WraithOrchestrator:
         logger.info(f"Starting {name}...")
         try:
             log_path = os.path.join(LOG_DIR, f"{name.split()[0].lower()}_output.log")
+            if self.log_file and not self.log_file.closed:
+                self.log_file.close()
             self.log_file = open(log_path, "a", encoding="utf-8")
             
             self.active_process = subprocess.Popen(
@@ -52,38 +58,50 @@ class WraithOrchestrator:
             logger.info(f"{name} started with PID {self.active_process.pid}. Logs redirected to {log_path}")
         except Exception as e:
             logger.error(f"Failed to start {name}: {e}")
+            self.active_process = None
 
     def stop_process(self):
-        if self.active_process:
-            logger.info(f"Stopping active process (PID {self.active_process.pid})...")
+        try:
+            if self.active_process:
+                logger.info(f"Stopping active process (PID {self.active_process.pid})...")
+                try:
+                    self.active_process.terminate()
+                    self.active_process.wait(timeout=10)
+                    logger.info("Process terminated gracefully.")
+                except subprocess.TimeoutExpired:
+                    logger.warning("Process did not terminate gracefully, sending SIGKILL...")
+                    self.active_process.kill()
+                    self.active_process.wait()
+                    logger.info("Process forcefully killed.")
+                except Exception as e:
+                    logger.error(f"Error while stopping process: {e}")
+        except Exception as e:
+            logger.error(f"Fatal error in stop_process: {e}")
+        finally:
+            self.active_process = None
             try:
-                self.active_process.terminate()
-                self.active_process.wait(timeout=10)
-                logger.info("Process terminated gracefully.")
-            except subprocess.TimeoutExpired:
-                logger.warning("Process did not terminate gracefully, sending SIGKILL...")
-                self.active_process.kill()
-                self.active_process.wait()
-                logger.info("Process forcefully killed.")
-            except Exception as e:
-                logger.error(f"Error while stopping process: {e}")
-            finally:
-                self.active_process = None
                 if self.log_file and not self.log_file.closed:
                     self.log_file.close()
-                    self.log_file = None
+            except Exception:
+                pass
+            self.log_file = None
 
     def check_process_health(self) -> bool:
         """Returns True if process is healthy (running), False if dead or none."""
         if self.active_process is None:
             return False
             
-        return_code = self.active_process.poll()
-        if return_code is not None:
-            logger.warning(f"Active process ({self.current_mode}) died with return code {return_code}.")
-            self.stop_process() # Ensure cleanup
+        try:
+            return_code = self.active_process.poll()
+            if return_code is not None:
+                logger.warning(f"Active process ({self.current_mode}) died with return code {return_code}.")
+                self.stop_process() # Ensure cleanup
+                return False
+            return True
+        except Exception as e:
+            logger.error(f"Health check failed: {e}")
+            self.stop_process()
             return False
-        return True
 
     def run(self):
         logger.info("WRAITH Ecosystem GOD_NODE initialized.")
@@ -123,5 +141,9 @@ class WraithOrchestrator:
                 time.sleep(30)
 
 if __name__ == "__main__":
-    orchestrator = WraithOrchestrator()
-    orchestrator.run()
+    try:
+        orchestrator = WraithOrchestrator()
+        orchestrator.run()
+    except Exception as e:
+        logger.error(f"Fatal crash: {e}")
+        sys.exit(1)
