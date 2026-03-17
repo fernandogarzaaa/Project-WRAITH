@@ -4,26 +4,30 @@ import subprocess
 import os
 import sys
 import logging
+from typing import Optional
 
 # Configure logging
+LOG_DIR = os.path.dirname(os.path.abspath(__file__))
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - GOD_NODE - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'god_node.log'))
+        logging.FileHandler(os.path.join(LOG_DIR, 'god_node.log'))
     ]
 )
+logger = logging.getLogger("GodNode")
 
-# Paths relative to orchestrator
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-POLTERGEIST_PATH = os.path.join(BASE_DIR, "poltergeist", "scraper_swarm.py")
-SOMNUS_PATH = os.path.join(BASE_DIR, "somnus", "evolution_loop.py")
+# Paths relative to project root
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+POLTERGEIST_PATH = os.path.join(PROJECT_ROOT, "poltergeist", "scraper_swarm.py")
+SOMNUS_PATH = os.path.join(PROJECT_ROOT, "somnus", "evolution_loop.py")
 
 class WraithOrchestrator:
     def __init__(self):
         self.current_mode = None
-        self.active_process = None
+        self.active_process: Optional[subprocess.Popen] = None
+        self.log_file = None
 
     def is_night_mode(self):
         """Night Mode is from 02:00 to 08:00 (exclusive of 08:00)"""
@@ -32,31 +36,58 @@ class WraithOrchestrator:
 
     def start_process(self, name, script_path):
         if not os.path.exists(script_path):
-            logging.warning(f"Script not found: {script_path}. Ensure it exists for actual execution.")
+            logger.error(f"Script not found: {script_path}. Critical failure.")
+            return
         
-        logging.info(f"Starting {name}...")
+        logger.info(f"Starting {name}...")
         try:
-            # Start the sub-process
-            self.active_process = subprocess.Popen([sys.executable, script_path])
-            logging.info(f"{name} started with PID {self.active_process.pid}")
+            log_path = os.path.join(LOG_DIR, f"{name.split()[0].lower()}_output.log")
+            self.log_file = open(log_path, "a", encoding="utf-8")
+            
+            self.active_process = subprocess.Popen(
+                [sys.executable, script_path],
+                stdout=self.log_file,
+                stderr=subprocess.STDOUT
+            )
+            logger.info(f"{name} started with PID {self.active_process.pid}. Logs redirected to {log_path}")
         except Exception as e:
-            logging.error(f"Failed to start {name}: {e}")
+            logger.error(f"Failed to start {name}: {e}")
 
     def stop_process(self):
         if self.active_process:
-            logging.info(f"Stopping active process (PID {self.active_process.pid})...")
-            self.active_process.terminate()
+            logger.info(f"Stopping active process (PID {self.active_process.pid})...")
             try:
+                self.active_process.terminate()
                 self.active_process.wait(timeout=10)
+                logger.info("Process terminated gracefully.")
             except subprocess.TimeoutExpired:
-                logging.warning("Process did not terminate gracefully, killing...")
+                logger.warning("Process did not terminate gracefully, sending SIGKILL...")
                 self.active_process.kill()
-            self.active_process = None
-            logging.info("Process stopped.")
+                self.active_process.wait()
+                logger.info("Process forcefully killed.")
+            except Exception as e:
+                logger.error(f"Error while stopping process: {e}")
+            finally:
+                self.active_process = None
+                if self.log_file and not self.log_file.closed:
+                    self.log_file.close()
+                    self.log_file = None
+
+    def check_process_health(self) -> bool:
+        """Returns True if process is healthy (running), False if dead or none."""
+        if self.active_process is None:
+            return False
+            
+        return_code = self.active_process.poll()
+        if return_code is not None:
+            logger.warning(f"Active process ({self.current_mode}) died with return code {return_code}.")
+            self.stop_process() # Ensure cleanup
+            return False
+        return True
 
     def run(self):
-        logging.info("WRAITH Ecosystem GOD_NODE initialized.")
-        logging.info("Schedule: Day Mode (08:00-02:00) -> Poltergeist | Night Mode (02:00-08:00) -> Somnus")
+        logger.info("WRAITH Ecosystem GOD_NODE initialized.")
+        logger.info("Schedule: Day Mode (08:00-02:00) -> Poltergeist | Night Mode (02:00-08:00) -> Somnus")
         
         while True:
             try:
@@ -64,33 +95,32 @@ class WraithOrchestrator:
                 target_mode = "NIGHT" if night else "DAY"
                 
                 if self.current_mode != target_mode:
-                    logging.info(f"Mode transition: {self.current_mode} -> {target_mode}")
+                    logger.info(f"Mode transition triggered: {self.current_mode} -> {target_mode}")
                     self.stop_process()
-                    
                     self.current_mode = target_mode
+                    
                     if target_mode == "DAY":
                         self.start_process("Poltergeist (Day Mode)", POLTERGEIST_PATH)
                     else:
                         self.start_process("Somnus (Night Mode)", SOMNUS_PATH)
                 else:
-                    # Check if process is still alive, restart if dead
-                    if self.active_process and self.active_process.poll() is not None:
-                        logging.warning(f"Active process ({self.current_mode}) died unexpectedly. Restarting...")
+                    if not self.check_process_health():
+                        logger.warning(f"Restarting dead {self.current_mode} process...")
                         if self.current_mode == "DAY":
                             self.start_process("Poltergeist (Day Mode)", POLTERGEIST_PATH)
                         else:
                             self.start_process("Somnus (Night Mode)", SOMNUS_PATH)
 
-                # Sleep before next check (check every 60 seconds)
-                time.sleep(60)
+                # Polling interval
+                time.sleep(30)
                 
             except KeyboardInterrupt:
-                logging.info("GOD_NODE shutting down gracefully...")
+                logger.info("GOD_NODE shutting down gracefully...")
                 self.stop_process()
                 break
             except Exception as e:
-                logging.error(f"Error in main loop: {e}")
-                time.sleep(60)
+                logger.error(f"Critical error in main orchestrator loop: {e}")
+                time.sleep(30)
 
 if __name__ == "__main__":
     orchestrator = WraithOrchestrator()
