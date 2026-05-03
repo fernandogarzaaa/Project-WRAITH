@@ -27,7 +27,7 @@ jobs:
           pip install ruff pytest
 
       - name: Lint with ruff
-        run: ruff check . || true
+        run: ruff check .
 
       - name: Syntax check
         run: python -m compileall -q babel orchestrator poltergeist somnus
