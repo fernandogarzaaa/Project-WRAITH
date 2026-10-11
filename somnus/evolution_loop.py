@@ -2,8 +2,10 @@ import os
 import json
 import glob
 
-RAW_DIR = r"D:\Project Wraith\data\raw"
-PROCESSED_DIR = r"D:\Project Wraith\data\processed"
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+RAW_DIR = os.path.join(PROJECT_ROOT, "data", "raw")
+PROCESSED_DIR = os.path.join(PROJECT_ROOT, "data", "processed")
+
 DATASET_PATH = os.path.join(PROCESSED_DIR, "dataset.jsonl")
 
 def format_to_alpaca(raw_text):

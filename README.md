@@ -21,6 +21,7 @@ It combines three radical concepts into a single circadian daemon:
 4. Run the daemon: `python orchestrator/god_node.py`
 
 *Note: WRAITH requires a local LLM backend (like Ollama or llama.cpp) running on localhost.*
+*Data lands in the project-relative `data/raw` and `data/processed` directories on every OS (previously hardcoded to a Windows `D:\` path). The nocturnal LoRA fine-tune in `somnus/evolution_loop.py` is currently an explicit stub; see its source for the unsloth wiring point.*
 
 ## License
 MIT
