@@ -1,5 +1,4 @@
 """Real tests for the Babel LLM-to-LLM compression protocol."""
-import json
 import sys
 from pathlib import Path
 

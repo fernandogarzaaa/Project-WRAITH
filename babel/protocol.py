@@ -1,6 +1,6 @@
-import re
 import json
-from typing import Dict, Any, Optional
+import re
+from typing import Any
 
 # The Babel System Prompt
 # This prompt forces the LLM to abandon natural language and use a dense, symbolic hash protocol.
@@ -35,7 +35,7 @@ class BabelParser:
     )
 
     @classmethod
-    def parse(cls, llm_output: str) -> Optional[Dict[str, Any]]:
+    def parse(cls, llm_output: str) -> dict[str, Any] | None:
         """
         Decodes a Babel hash string into a structured dictionary.
         Returns None if parsing fails.
@@ -67,7 +67,7 @@ class BabelParser:
         }
 
     @classmethod
-    def serialize(cls, domain: str, intent: str, confidence: int, payload: Dict[str, str]) -> str:
+    def serialize(cls, domain: str, intent: str, confidence: int, payload: dict[str, str]) -> str:
         """
         Encodes a routing command back into a Babel dense symbolic hash.
         """

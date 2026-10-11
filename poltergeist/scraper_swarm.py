@@ -1,7 +1,8 @@
 import asyncio
-import random
 import os
-from datetime import datetime
+import random
+from datetime import datetime, timezone
+
 from playwright.async_api import async_playwright
 
 # High-value target sites
@@ -36,15 +37,15 @@ async def scrape_site(browser, instance_id):
                 text_content = await page.evaluate("document.body.innerText")
                 
                 # Save to raw data directory with timestamp
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
                 domain = target.split("//")[1].split("/")[0].replace(".", "_")
                 filename = os.path.join(DATA_DIR, f"scraped_{domain}_{timestamp}_inst{instance_id}.txt")
                 
-                with open(filename, "w", encoding="utf-8") as f:
+                with open(filename, "w", encoding="utf-8") as f:  # noqa: ASYNC230 - small local write, acceptable in scraper worker
                     # Save a chunk of text to prevent massive disk usage over time
                     f.write(text_content[:100000])
                     
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - scraper must survive per-site failures
                 print(f"[Instance {instance_id}] Scrape error on {target}: {e}")
             
             # Random sleep between 15 and 90 seconds to simulate sporadic background activity
