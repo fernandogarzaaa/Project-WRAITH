@@ -1,9 +1,11 @@
-import os
-import json
 import glob
+import json
+import os
 
-RAW_DIR = r"D:\Project Wraith\data\raw"
-PROCESSED_DIR = r"D:\Project Wraith\data\processed"
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+RAW_DIR = os.path.join(PROJECT_ROOT, "data", "raw")
+PROCESSED_DIR = os.path.join(PROJECT_ROOT, "data", "processed")
+
 DATASET_PATH = os.path.join(PROCESSED_DIR, "dataset.jsonl")
 
 def format_to_alpaca(raw_text):
@@ -53,13 +55,12 @@ def process_raw_data():
             
             if content.strip():
                 dataset_entries.append(format_to_alpaca(content))
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - dataset build must survive bad files
             print(f"Error processing {file_path}: {e}")
             
     # Write to JSONL
     with open(DATASET_PATH, 'w', encoding='utf-8') as out_f:
-        for entry in dataset_entries:
-            out_f.write(json.dumps(entry) + '\n')
+        out_f.writelines(json.dumps(entry) + '\n' for entry in dataset_entries)
             
     print(f"Saved {len(dataset_entries)} entries to {DATASET_PATH}")
     return DATASET_PATH
@@ -75,7 +76,8 @@ def trigger_unsloth_lora_finetune(dataset_path):
     # In a real scenario, you would import unsloth here, but we keep it as a stub
     # so the script can run without failing if unsloth isn't installed yet.
     
-    stub_code = """
+    # Intentionally unused: unsloth wiring template for the documented next step.
+    _stub_code = """
     from unsloth import FastLanguageModel
     import torch
     from trl import SFTTrainer
