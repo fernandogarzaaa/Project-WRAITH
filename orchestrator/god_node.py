@@ -31,7 +31,7 @@ class WraithOrchestrator:
     def is_night_mode(self):
         """Night Mode is from 02:00 to 08:00 (exclusive of 08:00)"""
         try:
-            hour = datetime.datetime.now(datetime.timezone.utc).hour
+            hour = datetime.datetime.now(datetime.UTC).hour
             return 2 <= hour < 8
         except Exception as e:  # noqa: BLE001 - daemon must survive unexpected errors
             logger.error(f"Error checking time: {e}")
