@@ -22,17 +22,44 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 POLTERGEIST_PATH = os.path.join(PROJECT_ROOT, "poltergeist", "scraper_swarm.py")
 SOMNUS_PATH = os.path.join(PROJECT_ROOT, "somnus", "evolution_loop.py")
 
+def _hour_from_env(name: str, default: int) -> int:
+    raw = os.environ.get(name, "")
+    try:
+        value = int(raw) if raw.strip() else default
+    except ValueError:
+        logger.warning(f"Ignoring invalid {name}={raw!r}; using {default}")
+        return default
+    if not 0 <= value <= 23:
+        logger.warning(f"Ignoring out-of-range {name}={value}; using {default}")
+        return default
+    return value
+
+
 class WraithOrchestrator:
     def __init__(self):
         self.current_mode = None
         self.active_process: subprocess.Popen | None = None
         self.log_file = None
+        # A job that exits cleanly (return code 0) is finished for this mode
+        # and is not restarted until the next mode transition.
+        self.mode_job_done = False
+        # Night window in the machine's LOCAL time (it used to be UTC, which on
+        # a UTC+8 machine ran the "nightly" job at 10:00-16:00).
+        self.night_start = _hour_from_env("WRAITH_NIGHT_START", 2)
+        self.night_end = _hour_from_env("WRAITH_NIGHT_END", 8)
 
-    def is_night_mode(self):
-        """Night Mode is from 02:00 to 08:00 (exclusive of 08:00)"""
+    def is_night_mode(self, now: datetime.datetime | None = None):
+        """Night Mode is [WRAITH_NIGHT_START, WRAITH_NIGHT_END) local time,
+        02:00-08:00 by default. A window that crosses midnight (e.g. 22 -> 6)
+        is supported."""
         try:
-            hour = datetime.datetime.now(datetime.UTC).hour
-            return 2 <= hour < 8
+            hour = (now or datetime.datetime.now()).hour
+            start, end = self.night_start, self.night_end
+            if start == end:
+                return False
+            if start < end:
+                return start <= hour < end
+            return hour >= start or hour < end
         except Exception as e:  # noqa: BLE001 - daemon must survive unexpected errors
             logger.error(f"Error checking time: {e}")
             return False
@@ -93,7 +120,11 @@ class WraithOrchestrator:
         try:
             return_code = self.active_process.poll()
             if return_code is not None:
-                logger.warning(f"Active process ({self.current_mode}) died with return code {return_code}.")
+                if return_code == 0:
+                    logger.info(f"{self.current_mode} job finished cleanly; idle until the next mode.")
+                    self.mode_job_done = True
+                else:
+                    logger.warning(f"Active process ({self.current_mode}) died with return code {return_code}.")
                 self.stop_process() # Ensure cleanup
                 return False
             return True
@@ -104,7 +135,10 @@ class WraithOrchestrator:
 
     def run(self):
         logger.info("WRAITH Ecosystem GOD_NODE initialized.")
-        logger.info("Schedule: Day Mode (08:00-02:00) -> Poltergeist | Night Mode (02:00-08:00) -> Somnus")
+        logger.info(
+            f"Schedule (local time): Night Mode ({self.night_start:02d}:00-{self.night_end:02d}:00) -> Somnus"
+            " | Day Mode (rest of the day) -> Poltergeist"
+        )
         
         while True:
             try:
@@ -115,13 +149,14 @@ class WraithOrchestrator:
                     logger.info(f"Mode transition triggered: {self.current_mode} -> {target_mode}")
                     self.stop_process()
                     self.current_mode = target_mode
+                    self.mode_job_done = False
                     
                     if target_mode == "DAY":
                         self.start_process("Poltergeist (Day Mode)", POLTERGEIST_PATH)
                     else:
                         self.start_process("Somnus (Night Mode)", SOMNUS_PATH)
-                else:
-                    if not self.check_process_health():
+                elif not self.mode_job_done:
+                    if not self.check_process_health() and not self.mode_job_done:
                         logger.warning(f"Restarting dead {self.current_mode} process...")
                         if self.current_mode == "DAY":
                             self.start_process("Poltergeist (Day Mode)", POLTERGEIST_PATH)
